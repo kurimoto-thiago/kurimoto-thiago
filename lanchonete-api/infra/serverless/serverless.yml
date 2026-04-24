@@ -1,0 +1,122 @@
+# serverless.yml — Serverless Framework v3
+# Deploy: sls deploy --stage prod
+
+service: lanchonete-api
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: sa-east-1
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 29           # API GW HTTP máximo = 30s
+  architecture: arm64   # Graviton2 — mais barato e mais rápido
+
+  # Variáveis via SSM Parameter Store
+  environment:
+    NODE_ENV:            production
+    PORT:                3000
+    DB_HOST:             ${ssm:/lanchonete/${self:provider.stage}/db_host}
+    DB_PORT:             "5432"
+    DB_NAME:             lanchonete
+    DB_USER:             lanchonete_user
+    DB_PASSWORD:         ${ssm:/lanchonete/${self:provider.stage}/db_password~true}
+    REDIS_HOST:          ${ssm:/lanchonete/${self:provider.stage}/redis_host}
+    REDIS_PORT:          "6379"
+    REDIS_TTL_CARDAPIO:  "300"
+    RATE_LIMIT_WINDOW_MS:"60000"
+    RATE_LIMIT_MAX:      "100"
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - arn:aws:ssm:${self:provider.region}:*:parameter/lanchonete/${self:provider.stage}/*
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+
+  # VPC — mesmo VPC do RDS e ElastiCache
+  vpc:
+    securityGroupIds:
+      - ${ssm:/lanchonete/${self:provider.stage}/sg_lambda_id}
+    subnetIds:
+      - ${ssm:/lanchonete/${self:provider.stage}/private_subnet_1}
+      - ${ssm:/lanchonete/${self:provider.stage}/private_subnet_2}
+
+  # HTTP API (API Gateway v2) — mais barato que REST API
+  httpApi:
+    cors:
+      allowedOrigins: ['*']
+      allowedMethods: [GET, POST, PATCH, OPTIONS]
+      allowedHeaders: [Content-Type, Authorization]
+
+functions:
+  app:
+    handler: src/lambda.handler
+    description: Lanchonete API — Express adapter
+    events:
+      - httpApi:
+          method: GET
+          path:   /health
+      - httpApi:
+          method: GET
+          path:   /health/ready
+      - httpApi:
+          method: GET
+          path:   /cardapio
+      - httpApi:
+          method: GET
+          path:   /cardapio/{id}
+      - httpApi:
+          method: GET
+          path:   /pedidos
+      - httpApi:
+          method: GET
+          path:   /pedidos/{id}
+      - httpApi:
+          method: POST
+          path:   /pedidos
+      - httpApi:
+          method: PATCH
+          path:   /pedidos/{id}/status
+    # Warm-up agendado — evita cold start nos horários de pico
+    events:
+      - schedule:
+          name:    lanchonete-warmup
+          rate:    rate(5 minutes)
+          enabled: true
+          input:   { source: "warmup" }
+
+plugins:
+  - serverless-offline    # teste local: sls offline
+
+package:
+  individually: false
+  patterns:
+    - '!node_modules/.bin/**'
+    - '!node_modules/nodemon/**'
+    - '!node_modules/jest*/**'
+    - '!node_modules/supertest/**'
+    - '!infra/**'
+    - '!**/*.test.js'
+    - '!**/*.spec.js'
+    - '!coverage/**'
+    - '!.env*'
+    - '!docker-compose*'
+    - '!Dockerfile*'
+    - '!*.md'
+
+custom:
+  serverless-offline:
+    httpPort: 3000
+    noPrependStageInUrl: true

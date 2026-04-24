@@ -1,0 +1,207 @@
+# ── infra/container/k8s/deployment.yaml ──────────────────────────────────────
+# Kubernetes — EKS ou qualquer cluster K8s
+# kubectl apply -f infra/container/k8s/
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lanchonete
+  labels:
+    app: lanchonete-api
+
+---
+# Secret com credenciais (gerado via External Secrets Operator ou kubectl)
+# kubectl create secret generic lanchonete-secrets -n lanchonete \
+#   --from-literal=DB_HOST=... \
+#   --from-literal=DB_PASSWORD=... \
+#   --from-literal=REDIS_HOST=...
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lanchonete-secrets
+  namespace: lanchonete
+type: Opaque
+# data: (base64) — preencher via CI/CD ou External Secrets
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lanchonete-api
+  namespace: lanchonete
+  labels:
+    app: lanchonete-api
+    version: "1.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: lanchonete-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: lanchonete-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "3000"
+        prometheus.io/path:   "/metrics"
+    spec:
+      serviceAccountName: lanchonete-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser:    1000
+        fsGroup:      1000
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: ACCOUNT.dkr.ecr.sa-east-1.amazonaws.com/lanchonete-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name:  NODE_ENV
+              value: production
+            - name:  PORT
+              value: "3000"
+            - name:  DB_PORT
+              value: "5432"
+            - name:  DB_NAME
+              value: lanchonete
+            - name:  DB_USER
+              value: lanchonete_user
+            - name:  REDIS_PORT
+              value: "6379"
+            - name:  REDIS_TTL_CARDAPIO
+              value: "300"
+          envFrom:
+            - secretRef:
+                name: lanchonete-secrets
+          resources:
+            requests:
+              cpu:    "100m"
+              memory: "256Mi"
+            limits:
+              cpu:    "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds:       20
+            failureThreshold:    3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds:       10
+            failureThreshold:    3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+      topologySpreadConstraints:
+        - maxSkew:           1
+          topologyKey:       topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: lanchonete-api
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lanchonete-api
+  namespace: lanchonete
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+spec:
+  selector:
+    app: lanchonete-api
+  ports:
+    - port:       80
+      targetPort: 3000
+      protocol:   TCP
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lanchonete-api
+  namespace: lanchonete
+  annotations:
+    kubernetes.io/ingress.class:                    alb
+    alb.ingress.kubernetes.io/scheme:               internet-facing
+    alb.ingress.kubernetes.io/target-type:          ip
+    alb.ingress.kubernetes.io/healthcheck-path:     /health
+    alb.ingress.kubernetes.io/healthcheck-interval: "15"
+spec:
+  rules:
+    - http:
+        paths:
+          - path:     /
+            pathType: Prefix
+            backend:
+              service:
+                name: lanchonete-api
+                port:
+                  number: 80
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: lanchonete-api
+  namespace: lanchonete
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind:       Deployment
+    name:       lanchonete-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type:               Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type:               Utilization
+          averageUtilization: 75
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lanchonete-api
+  namespace: lanchonete
+  annotations:
+    # IRSA — IAM Role for Service Account (EKS)
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/lanchonete-k8s-role
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: lanchonete-api
+  namespace: lanchonete
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: lanchonete-api
