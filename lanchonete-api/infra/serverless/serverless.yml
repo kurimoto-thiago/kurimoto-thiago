@@ -89,8 +89,7 @@ functions:
       - httpApi:
           method: PATCH
           path:   /pedidos/{id}/status
-    # Warm-up agendado — evita cold start nos horários de pico
-    events:
+      # Warm-up agendado — evita cold start nos horários de pico
       - schedule:
           name:    lanchonete-warmup
           rate:    rate(5 minutes)

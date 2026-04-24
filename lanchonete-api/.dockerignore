@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log*
+.env*
+coverage
+.nyc_output
+*.test.js
+*.spec.js
+*.md
+.git
+.gitignore
+docker-compose*.yml
+infra/
+logs/

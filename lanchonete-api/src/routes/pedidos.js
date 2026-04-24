@@ -1,10 +1,10 @@
 'use strict';
 
-const express    = require('express');
-const Joi        = require('joi');
-const { query }  = require('../db/postgres');
-const { redis }  = require('../cache/redis');
-const logger     = require('../logger');
+const express         = require('express');
+const Joi             = require('joi');
+const { pool, query } = require('../db/postgres');
+const { redis }       = require('../cache/redis');
+const logger          = require('../logger');
 
 const router = express.Router();
 
@@ -24,11 +24,13 @@ const pedidoSchema = Joi.object({
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Calcula o total do pedido buscando preços no banco
+ * Calcula o total do pedido buscando preços no banco.
+ * Aceita um client de transação para garantir atomicidade.
  */
-async function calcularTotal(itens) {
+async function calcularTotal(itens, dbClient) {
   const ids      = itens.map((i) => i.cardapio_id);
-  const { rows } = await query(
+  const exec     = (sql, params) => dbClient ? dbClient.query(sql, params) : query(sql, params);
+  const { rows } = await exec(
     `SELECT id, nome, preco FROM cardapio WHERE id = ANY($1) AND disponivel = true`,
     [ids]
   );
@@ -162,12 +164,12 @@ router.post('/', async (req, res, next) => {
   }
 
   const { mesa, cliente_nome, itens } = value;
-  const client = await require('../db/postgres').pool.connect();
+  const client = await pool.connect();
 
   try {
-    const { total, precos } = await calcularTotal(itens);
-
     await client.query('BEGIN');
+
+    const { total, precos } = await calcularTotal(itens, client);
 
     // ── Inserir pedido ──────────────────────────────────────────────────────
     const { rows: [pedido] } = await client.query(
@@ -203,7 +205,7 @@ router.post('/', async (req, res, next) => {
 
     res.status(201).json({ message: 'Pedido criado com sucesso', pedido });
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     next(err);
   } finally {
     client.release();
