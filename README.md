@@ -1,4 +1,4 @@
-<h1 align="center">Olá, eu sou o Thiago 👋</h1>
+<h1 align="center">Olá, eu sou o Thiago</h1>
 
 <p align="center">
   <strong>☁️ Cloud Solutions Architect · 🛡️ Security · 🎓 Instrutor de Tecnologia</strong>
@@ -25,7 +25,7 @@ Engenheiro de Cloud com **17+ anos de TI** e **4+ anos como instrutor técnico**
 <p>
   <img src="https://images.credly.com/size/110x110/images/0e284c3f-5164-4b21-8660-0d84737941bc/image.png" alt="AWS SAA" width="80" />
   <img src="https://images.credly.com/size/110x110/images/4d4693bb-530e-4bca-9327-de07f3aa2348/image.png" alt="AWS AI Practitioner" width="80" />
-  <img src="https://images.credly.com/size/110x110/images/f7f5a17c-26c4-431a-bcd8-d7d72f93bc1d/image.png" alt="CCNA" width="80" />
+  <img src="https://images.credly.com/images/683783d8-eaac-4c37-a14d-11bd8a36321d/ccna_600.png" alt="CCNA" width="80" />
 </p>
 
 - **AWS Certified Solutions Architect – Associate**
