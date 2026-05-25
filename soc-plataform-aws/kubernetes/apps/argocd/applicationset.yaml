@@ -1,0 +1,48 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: soc-platform
+  namespace: argocd
+spec:
+  description: SOC Platform AWS
+  sourceRepos: ["*"]
+  destinations:
+    - { server: "https://kubernetes.default.svc", namespace: "*" }
+  clusterResourceWhitelist:
+    - { group: "*", kind: "*" }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: soc-platform-apps
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - { name: backend,   path: kubernetes/apps/backend,   namespace: soc-platform }
+          - { name: frontend,  path: kubernetes/apps/frontend,  namespace: soc-platform }
+          - { name: wazuh,     path: kubernetes/apps/wazuh,     namespace: security }
+          - { name: prometheus, path: kubernetes/apps/prometheus, namespace: monitoring }
+          - { name: loki,      path: kubernetes/apps/loki,      namespace: monitoring }
+          - { name: falco,     path: kubernetes/apps/falco,     namespace: security }
+          - { name: suricata,  path: kubernetes/apps/suricata,  namespace: security }
+  template:
+    metadata:
+      name: '{{name}}'
+      namespace: argocd
+    spec:
+      project: soc-platform
+      source:
+        repoURL: https://github.com/USER/soc-platform-aws
+        targetRevision: main
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true]
+        retry:
+          limit: 5
+          backoff: { duration: 5s, factor: 2, maxDuration: 3m }

@@ -1,0 +1,102 @@
+# kube-prometheus-stack values
+# Install: helm install kps prometheus-community/kube-prometheus-stack -n monitoring -f values.yaml
+
+fullnameOverride: kps
+namespaceOverride: monitoring
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    retentionSize: 45GB
+    replicas: 2
+    resources:
+      requests: { cpu: 500m, memory: 2Gi }
+      limits:   { cpu: 2000m, memory: 8Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources: { requests: { storage: 50Gi } }
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    externalLabels:
+      cluster: soc-platform
+      env: ${ENV}
+
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    hosts: [prometheus.seudominio.dev]
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 2
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          resources: { requests: { storage: 10Gi } }
+  config:
+    global:
+      slack_api_url: ${SLACK_WEBHOOK}
+    route:
+      receiver: slack-default
+      group_by: [alertname, severity]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers: [severity="critical"]
+          receiver: pagerduty
+          continue: true
+        - matchers: [severity="warning"]
+          receiver: slack-warnings
+    receivers:
+      - name: slack-default
+        slack_configs:
+          - channel: "#soc-alerts"
+            send_resolved: true
+      - name: slack-warnings
+        slack_configs:
+          - channel: "#soc-warnings"
+      - name: pagerduty
+        pagerduty_configs:
+          - service_key: ${PD_KEY}
+
+grafana:
+  replicas: 2
+  admin:
+    existingSecret: grafana-admin
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: gp3
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    hosts: [grafana.seudominio.dev]
+  sidecar:
+    dashboards: { enabled: true, label: grafana_dashboard }
+    datasources: { enabled: true, label: grafana_datasource }
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki-gateway.monitoring:80
+    - name: Wazuh
+      type: opensearch
+      url: https://wazuh-indexer.security:9200
+      basicAuth: true
+      jsonData: { timeField: "@timestamp", esVersion: "7.10.2" }
+
+kubeStateMetrics: { enabled: true }
+nodeExporter:     { enabled: true }
+
+defaultRules:
+  rules:
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    network: true

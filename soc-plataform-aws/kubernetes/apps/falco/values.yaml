@@ -1,0 +1,72 @@
+# Falco runtime security
+# Install: helm install falco falcosecurity/falco -n security -f values.yaml
+
+driver:
+  kind: modern_ebpf
+
+collectors:
+  containerd: { enabled: true }
+  kubernetes: { enabled: true }
+
+falco:
+  json_output: true
+  json_include_output_property: true
+  log_level: info
+  priority: warning
+  rules_file:
+    - /etc/falco/falco_rules.yaml
+    - /etc/falco/k8s_audit_rules.yaml
+    - /etc/falco/rules.d
+
+  outputs:
+    rate: 1
+    max_burst: 1000
+
+  http_output:
+    enabled: true
+    url: http://soc-backend.soc-platform:3000/api/v1/events/falco
+
+  syslog_output: { enabled: false }
+  stdout_output: { enabled: true }
+
+falcoctl:
+  artifact:
+    install: { enabled: true }
+    follow: { enabled: true }
+
+customRules:
+  rules-soc.yaml: |-
+    - rule: Detect Suspicious Container Shell
+      desc: Shell opened inside a non-allowlisted container
+      condition: >
+        spawned_process and container and shell_procs
+        and not container.image.repository in (allowed_shell_images)
+      output: >
+        Suspicious shell in container (user=%user.name container=%container.name image=%container.image.repository proc=%proc.cmdline)
+      priority: WARNING
+      tags: [container, shell, mitre_execution]
+
+    - rule: Crypto Mining Activity
+      desc: Process associated with crypto mining
+      condition: >
+        spawned_process and proc.name in (xmrig, minerd, ethminer, t-rex, lolminer)
+      output: >
+        Crypto mining detected (container=%container.name proc=%proc.cmdline)
+      priority: CRITICAL
+      tags: [process, mitre_impact]
+
+falcosidekick:
+  enabled: true
+  config:
+    slack:
+      webhookurl: ${SLACK_WEBHOOK}
+      minimumpriority: warning
+    elasticsearch:
+      hostport: https://wazuh-indexer.security:9200
+      index: falco-events
+    prometheus:
+      extralabels: cluster=soc-platform
+  webui:
+    enabled: true
+    redis:
+      managed: true

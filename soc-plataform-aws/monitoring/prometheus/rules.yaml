@@ -1,0 +1,79 @@
+groups:
+  - name: soc-platform-app
+    interval: 30s
+    rules:
+      - alert: BackendHighErrorRate
+        expr: |
+          sum(rate(http_request_duration_seconds_count{job="soc-backend",status_code=~"5.."}[5m])) 
+          / sum(rate(http_request_duration_seconds_count{job="soc-backend"}[5m])) > 0.05
+        for: 5m
+        labels: { severity: critical, service: backend }
+        annotations:
+          summary: "Backend error rate above 5%"
+          description: "SOC backend returning >5% 5xx errors over 5 minutes"
+
+      - alert: BackendHighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(http_request_duration_seconds_bucket{job="soc-backend"}[5m])) by (le)
+          ) > 1
+        for: 10m
+        labels: { severity: warning, service: backend }
+        annotations:
+          summary: "Backend p95 latency above 1s"
+
+      - alert: PodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 5 > 0
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: "Pod {{ $labels.pod }} crashing"
+
+  - name: soc-platform-security
+    interval: 1m
+    rules:
+      - alert: HighRateCriticalEvents
+        expr: sum(rate(security_events_total{severity="critical"}[5m])) > 1
+        for: 2m
+        labels: { severity: critical, area: security }
+        annotations:
+          summary: "Critical security events spike detected"
+          runbook: "https://docs.seudominio.dev/runbooks/critical-events"
+
+      - alert: FalcoSuspiciousActivity
+        expr: sum(rate(falco_events{priority="Critical"}[5m])) > 0
+        for: 1m
+        labels: { severity: critical, area: security }
+        annotations:
+          summary: "Falco detected critical event"
+
+      - alert: WazuhAgentDown
+        expr: wazuh_agent_status == 0
+        for: 5m
+        labels: { severity: warning, area: security }
+        annotations:
+          summary: "Wazuh agent {{ $labels.agent }} down"
+
+  - name: soc-platform-infra
+    interval: 30s
+    rules:
+      - alert: NodeHighCPU
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Node {{ $labels.instance }} CPU > 85%"
+
+      - alert: NodeDiskAlmostFull
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 15
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Disk usage on {{ $labels.instance }} above 85%"
+
+      - alert: RDSConnectionsHigh
+        expr: aws_rds_database_connections_average > 80
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "RDS connections > 80"

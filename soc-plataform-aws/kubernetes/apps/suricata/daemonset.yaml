@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: suricata
+  namespace: security
+  labels: { app: suricata }
+spec:
+  selector:
+    matchLabels: { app: suricata }
+  template:
+    metadata:
+      labels: { app: suricata }
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: suricata
+          image: jasonish/suricata:7.0
+          args: ["-i", "eth0", "--af-packet", "-vvv"]
+          securityContext:
+            privileged: true
+            capabilities:
+              add: [NET_ADMIN, SYS_NICE, NET_RAW]
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits:   { cpu: 1000m, memory: 1Gi }
+          volumeMounts:
+            - { name: config,  mountPath: /etc/suricata }
+            - { name: rules,   mountPath: /var/lib/suricata/rules }
+            - { name: logs,    mountPath: /var/log/suricata }
+        - name: log-forwarder
+          image: grafana/promtail:2.9.0
+          args:
+            - -config.file=/etc/promtail/config.yaml
+          volumeMounts:
+            - { name: promtail-config, mountPath: /etc/promtail }
+            - { name: logs,            mountPath: /var/log/suricata }
+      volumes:
+        - name: config
+          configMap: { name: suricata-config }
+        - name: rules
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+        - name: promtail-config
+          configMap: { name: suricata-promtail }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: suricata-config
+  namespace: security
+data:
+  suricata.yaml: |
+    %YAML 1.1
+    ---
+    vars:
+      address-groups:
+        HOME_NET: "[10.0.0.0/8,192.168.0.0/16]"
+        EXTERNAL_NET: "!$HOME_NET"
+    default-rule-path: /var/lib/suricata/rules
+    rule-files:
+      - emerging-threats.rules
+      - mitre-attack.rules
+    af-packet:
+      - interface: eth0
+        cluster-id: 99
+        cluster-type: cluster_flow
+    outputs:
+      - eve-log:
+          enabled: yes
+          filetype: regular
+          filename: /var/log/suricata/eve.json
+          types:
+            - alert: { metadata: yes, http-body: yes }
+            - http: { extended: yes }
+            - dns
+            - tls: { extended: yes }
+            - flow
+            - anomaly
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: suricata-promtail
+  namespace: security
+data:
+  config.yaml: |
+    server:
+      http_listen_port: 9080
+    positions:
+      filename: /tmp/positions.yaml
+    clients:
+      - url: http://loki-gateway.monitoring/loki/api/v1/push
+    scrape_configs:
+      - job_name: suricata
+        static_configs:
+          - targets: [localhost]
+            labels:
+              job: suricata
+              __path__: /var/log/suricata/eve.json

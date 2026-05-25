@@ -1,0 +1,77 @@
+{
+  "title": "SOC Platform - Overview",
+  "uid": "soc-overview",
+  "tags": ["soc", "security", "aws"],
+  "timezone": "America/Sao_Paulo",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(security_events_total, tenant)",
+        "current": { "value": "All", "text": "All" },
+        "includeAll": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Eventos por severidade (24h)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum by (severity) (increase(security_events_total{tenant=~\"$tenant\"}[24h]))", "legendFormat": "{{severity}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "orange", "value": 100 },
+            { "color": "red", "value": 500 }
+          ]}
+        }
+      }
+    },
+    {
+      "title": "Taxa de eventos (rate/min)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum by (severity) (rate(security_events_total{tenant=~\"$tenant\"}[5m])) * 60", "legendFormat": "{{severity}}" }
+      ]
+    },
+    {
+      "title": "Top 10 rules disparadas",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "topk(10, sum by (rule_id) (increase(security_events_total[24h])))" }
+      ]
+    },
+    {
+      "title": "Latência API (p50/p95/p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"soc-backend\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"soc-backend\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"soc-backend\"}[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "title": "Falco events (live)",
+      "type": "logs",
+      "datasource": "Loki",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "{namespace=\"security\",app=\"falco\"} | json" }
+      ]
+    }
+  ]
+}

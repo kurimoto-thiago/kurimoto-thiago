@@ -1,0 +1,19 @@
+# Default owners
+* @tkurimoto
+
+# Terraform
+/terraform/ @tkurimoto
+
+# Backend
+/backend/ @tkurimoto
+
+# Frontend
+/frontend/ @tkurimoto
+
+# Security
+/kubernetes/apps/falco/ @tkurimoto
+/kubernetes/apps/wazuh/ @tkurimoto
+/kubernetes/apps/suricata/ @tkurimoto
+
+# Docs
+/docs/ @tkurimoto

@@ -1,0 +1,69 @@
+# Wazuh stack on Kubernetes
+# Apply with: helm install wazuh wazuh/wazuh-kubernetes -n security -f values.yaml
+
+cluster:
+  key: "GENERATED-AT-DEPLOY"
+  name: soc-wazuh
+  nodes:
+    master:
+      name: master-0
+      replicas: 1
+    worker:
+      replicas: 2
+
+indexer:
+  name: wazuh-indexer
+  replicas: 3
+  resources:
+    requests: { memory: 1Gi, cpu: 500m }
+    limits:   { memory: 4Gi, cpu: 2000m }
+  storage:
+    size: 50Gi
+    storageClass: gp3
+  tls:
+    generate: true
+
+manager:
+  name: wazuh-manager
+  replicas: 2
+  resources:
+    requests: { memory: 512Mi, cpu: 250m }
+    limits:   { memory: 2Gi, cpu: 1000m }
+  storage:
+    size: 50Gi
+    storageClass: gp3
+  service:
+    type: ClusterIP
+
+dashboard:
+  name: wazuh-dashboard
+  replicas: 1
+  resources:
+    requests: { memory: 512Mi, cpu: 250m }
+    limits:   { memory: 1Gi, cpu: 500m }
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: true
+    className: alb
+    annotations:
+      alb.ingress.kubernetes.io/scheme: internet-facing
+    hosts:
+      - wazuh.seudominio.dev
+
+agent:
+  enrollment:
+    method: password
+  rulesets:
+    - cis_apache
+    - cis_nginx
+    - cis_docker
+    - cis_kubernetes
+    - mitre_attack
+
+integrations:
+  - name: slack
+    webhook: ${SLACK_WEBHOOK}
+    minLevel: 10
+  - name: virustotal
+    apiKey: ${VT_API_KEY}

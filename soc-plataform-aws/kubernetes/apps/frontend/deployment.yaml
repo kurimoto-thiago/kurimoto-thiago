@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soc-frontend
+  namespace: soc-platform
+  labels: { app: soc-frontend }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: soc-frontend }
+  template:
+    metadata:
+      labels: { app: soc-frontend }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        fsGroup: 101
+      containers:
+        - name: web
+          image: REGISTRY/soc-platform-frontend:GIT_SHA
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          livenessProbe:
+            httpGet: { path: /, port: http }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities: { drop: ["ALL"], add: ["NET_BIND_SERVICE"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: soc-frontend
+  namespace: soc-platform
+spec:
+  type: ClusterIP
+  selector: { app: soc-frontend }
+  ports:
+    - port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soc-platform
+  namespace: soc-platform
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:sa-east-1:ACCOUNT:certificate/CERT-ID
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS-1-2-Ext-2018-06
+    alb.ingress.kubernetes.io/wafv2-acl-arn: arn:aws:wafv2:sa-east-1:ACCOUNT:regional/webacl/soc-platform/ID
+spec:
+  rules:
+    - host: soc.seudominio.dev
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend: { service: { name: soc-backend, port: { number: 3000 } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: soc-frontend, port: { number: 80 } } }
